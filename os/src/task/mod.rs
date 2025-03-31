@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
+use crate::mm::{MapPermission, VirtAddr, translated_byte_buffer};
 pub use context::TaskContext;
 
 /// The task manager, where all the tasks are managed.
@@ -201,4 +201,90 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
 /// Change the current 'Running' task's program break
 pub fn change_program_brk(size: i32) -> Option<usize> {
     TASK_MANAGER.change_current_program_brk(size)
+}
+
+/// Count the syscall times of the current 'Running' task
+pub fn count_syscall(syscall_id: usize) {
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let cur = inner.current_task;
+    inner.tasks[cur].syscall_times[syscall_id] += 1;
+}
+
+/// Get the syscall times of the current 'Running' task
+pub fn get_syscall_times(syscall_id: usize) -> usize {
+    let inner = TASK_MANAGER.inner.exclusive_access();
+    inner.tasks[inner.current_task].syscall_times[syscall_id] as usize
+}
+
+/// trace syscall
+pub fn trace(trace_request: usize, id: usize, data: usize) -> isize {
+    let task_id= TASK_MANAGER.inner.exclusive_access().current_task;
+    match trace_request {
+        0 => {
+            // get
+            if !TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set.is_readable(id.into()) {
+                return -1;
+            }
+            let buffers = translated_byte_buffer(current_user_token(), id as *const u8, core::mem::size_of::<u8>());
+            return buffers[0][0] as isize;
+        }
+        1 => {
+            // set
+            if !TASK_MANAGER.inner.exclusive_access().tasks[task_id].memory_set.is_writable(id.into()) {
+                return -1;
+            }
+            let mut buffers = translated_byte_buffer(current_user_token(), id as *const u8, core::mem::size_of::<u8>());
+            buffers[0][0] = data as u8;
+            return 0;
+        }
+        2 => {
+            // get system call times
+            return get_syscall_times(id) as isize;
+        }
+        _ => return -1,
+    }
+}
+
+/// mmap syscall
+pub fn mmap(start: usize, len: usize, port: usize) -> isize {
+    debug!("kernel: mmap: start = {:#x}, len = {:#x}, port = {:#x}", start, len, port);
+    let start_va:VirtAddr = start.into();
+    if !start_va.aligned() {
+        return -1;
+    }
+    if (port & (!0x7)) != 0 || (port & 0x7) == 0 {
+        return -1;
+    }
+    let end_va: VirtAddr = (start + len).into();
+    let start_vpn = start_va.floor();
+    let end_vpn = end_va.ceil();
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let cur = inner.current_task;
+    if inner.tasks[cur].memory_set.is_overlap(start_vpn, end_vpn) {
+        debug!("kernel: mmap: overlap");
+        return -1;
+    }
+    debug!("kernel: mmap: start_vpn = {:?}, end_vpn = {:?}", start_vpn, end_vpn);
+    inner.tasks[cur].memory_set.mmap(start_vpn, end_vpn, MapPermission::from_bits_truncate((port as u8) << 1) | MapPermission::U);
+    return 0
+}
+
+/// munmap syscall
+pub fn munmap(start: usize, len: usize) -> isize {
+    debug!("kernel: munmap: start = {:#x}, len = {:#x}", start, len);
+    let start_va:VirtAddr= start.into();
+    if !start_va.aligned() {
+        return -1;
+    }
+    let start_vpn = start_va.floor();
+    let end_va: VirtAddr = (start + len).into();
+    let end_vpn = end_va.ceil();
+    let mut inner = TASK_MANAGER.inner.exclusive_access();
+    let cur = inner.current_task;
+    debug!("kernel: munmap: start_vpn = {:?}, end_vpn = {:?}", start_vpn, end_vpn);
+    return match inner.tasks[cur].memory_set.munmap(start_vpn, end_vpn)
+    {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
 }
