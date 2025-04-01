@@ -4,6 +4,7 @@ use super::id::TaskUserRes;
 use super::{kstack_alloc, KernelStack, ProcessControlBlock, TaskContext};
 use crate::trap::TrapContext;
 use crate::{mm::PhysPageNum, sync::UPSafeCell};
+use alloc::collections::btree_map::BTreeMap;
 use alloc::sync::{Arc, Weak};
 use core::cell::RefMut;
 
@@ -41,6 +42,11 @@ pub struct TaskControlBlockInner {
     pub task_status: TaskStatus,
     /// It is set when active exit or execution error occurs
     pub exit_code: Option<i32>,
+
+    pub alloced_mutex: BTreeMap<usize, usize>,
+    pub alloced_semephore: BTreeMap<usize, usize>,
+    pub need_mutex: BTreeMap<usize, usize>,
+    pub need_semephore: BTreeMap<usize, usize>,
 }
 
 impl TaskControlBlockInner {
@@ -75,6 +81,10 @@ impl TaskControlBlock {
                     task_cx: TaskContext::goto_trap_return(kstack_top),
                     task_status: TaskStatus::Ready,
                     exit_code: None,
+                    alloced_mutex: BTreeMap::default(),
+                    alloced_semephore: BTreeMap::default(),
+                    need_mutex: BTreeMap::default(),
+                    need_semephore: BTreeMap::default(),
                 })
             },
         }

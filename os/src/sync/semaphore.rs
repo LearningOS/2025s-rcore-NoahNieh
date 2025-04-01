@@ -50,6 +50,6 @@ impl Semaphore {
             inner.wait_queue.push_back(current_task().unwrap());
             drop(inner);
             block_current_and_run_next();
-        }
+        } 
     }
 }

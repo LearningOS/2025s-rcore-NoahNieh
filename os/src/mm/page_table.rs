@@ -217,6 +217,19 @@ pub fn translated_refmut<T>(token: usize, ptr: *mut T) -> &'static mut T {
         .get_mut()
 }
 
+#[allow(unused)]
+/// write data to user space memory
+pub fn write_user_space<T: Sized>(token: usize, ptr: *const T, data: &T) {
+    let data_len = core::mem::size_of::<T>();
+    let data = unsafe { core::slice::from_raw_parts(data as *const T as *const u8, data_len) };
+    let buffers = translated_byte_buffer(token, ptr as *const u8, data_len);
+    let mut cur_idx = 0;
+    for buffer in buffers {
+        buffer.copy_from_slice(&data[cur_idx..cur_idx + buffer.len()]);
+        cur_idx += buffer.len();
+    }
+}
+
 /// An abstraction over a buffer passed from user space to kernel space
 pub struct UserBuffer {
     /// A list of buffers
