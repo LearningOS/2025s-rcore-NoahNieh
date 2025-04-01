@@ -141,6 +141,7 @@ pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
             debug!("kernel: mmap: overlap");
             return -1;
         }
+        debug!("kernel: mmap: start_vpn: {}, end_vpn: {}, perm: {}", start_vpn.0, end_vpn.0, port);
         task.inner_exclusive_access().memory_set.mmap(start_vpn, end_vpn, MapPermission::from_bits_truncate((port as u8) << 1) | MapPermission::U);
         0
     } else {
@@ -187,10 +188,10 @@ pub fn sys_spawn(path: *const u8) -> isize {
     );
     let current_task = current_task().unwrap();
     let path = translated_str(current_user_token(), path);
-    debug!("kernel:pid[{}] sys_spawn path:{}", current_task.pid.0, path);
-    if let Some(elf_data) = get_app_data_by_name(path.as_str())
+    if let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY)
     {
-        let new_task = current_task.spawn(elf_data);
+        let all_data = app_inode.read_all();
+        let new_task = current_task.spawn(all_data.as_slice());
         let new_pid = new_task.pid.0;
         add_task(new_task);
         debug!("kernel:pid[{}] sys_spawn new_pid:{}", current_task.pid.0, new_pid);
