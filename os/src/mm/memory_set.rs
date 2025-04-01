@@ -300,6 +300,49 @@ impl MemorySet {
             false
         }
     }
+
+    /// check if the page is readable
+    pub fn is_readable(&self, vpn: VirtPageNum) -> bool {
+        self.areas.iter().any(|area| {
+            area.vpn_range.get_start() <= vpn && vpn < area.vpn_range.get_end() && area.map_perm.contains(MapPermission::R | MapPermission::U)
+        })
+    }
+
+    /// check if the page is writable
+    pub fn is_writable(&self, vpn: VirtPageNum) -> bool {
+        self.areas.iter().any(|area| {
+            area.vpn_range.get_start() <= vpn && vpn < area.vpn_range.get_end() && area.map_perm.contains(MapPermission::W | MapPermission::U)
+        })
+    }
+
+    /// check if the two memory sets are overlapped
+    pub fn is_overlap(&self, start: VirtPageNum, end: VirtPageNum) -> bool {
+        self.areas.iter().any(|area| {
+            area.vpn_range.get_start() < end && start < area.vpn_range.get_end()
+        })
+    }
+    
+    /// map the memory set
+    pub fn mmap(&mut self, start_vpn: VirtPageNum, end_vpn: VirtPageNum, perm: MapPermission) {
+        let mut area = MapArea::new(start_vpn.into(), end_vpn.into(), MapType::Framed, perm);
+        area.map(&mut self.page_table);
+        self.areas.push(area);
+    }
+
+    /// unmap the memory set
+    pub fn munmap(&mut self, start_vpn: VirtPageNum, end_vpn: VirtPageNum) -> isize {
+        self.areas.iter_mut().enumerate().find_map(|(i, area)| {
+            if area.vpn_range.get_start() == start_vpn && area.vpn_range.get_end() == end_vpn {
+                Some(i)
+            } else {
+                None
+            }
+        }).map(|i| {
+            self.areas[i].unmap(&mut self.page_table);
+            self.areas.remove(i);
+            0
+        }).unwrap_or(-1)
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
